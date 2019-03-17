@@ -367,6 +367,21 @@ Here follows a list of supported TCP congestion control algorithms. For an
 academic peer-reviewed paper on these congestion control algorithms, see
 http://dl.acm.org/citation.cfm?id=2756518 .
 
+Reno
+^^^^
+Reno algorithm introduces fast recovery inside the Tahoe algorithm. This and
+other modifications are described in RFC 2581. Reno primarily distinguishes
+itself from Tahoe in one specific way. If there are three duplicate
+acknowledgements with no piggybacked data, the algorithm sets the SSThresh to
+half of current cwnd value and enters the fast recovery stage, instead of
+resetting to initial value of cwnd. In fast recovery, the algorithm waits for
+an acknowledgement with sequence number next to the duplicate acknowledgement
+received. Once it gets the acknowledgement of any subsequent packet that was
+sent, it exits the fast recovery. In case of acknowledgement timeout, Reno
+resets the cwnd to 1 MSS.
+
+More information at: https://tools.ietf.org/html/rfc2581
+
 New Reno
 ^^^^^^^^
 New Reno algorithm introduces partial ACKs inside the well-established Reno

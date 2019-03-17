@@ -168,7 +168,7 @@ TcpReno::IncreaseWindow (Ptr <TcpSocketState> tcb, uint32_t segmentsAcked)
    */
 }
 
-std::stringDefault
+std::string
 TcpReno::GetName () const
 {
   return "TcpReno";
