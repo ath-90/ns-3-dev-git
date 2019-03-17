@@ -1,0 +1,191 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * Copyright (c) 2018 NITK Surathkal
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation;
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Authors: Athreya H N <indiathreya92@gmail.com>
+ *          Anubhav Jain <anubhav.13jain@gmail.com>
+ *          Mohit P. Tahiliani <tahiliani@nitk.edu.in>
+ */
+
+#include "tcp-reno.h"
+#include "ns3/log.h"
+
+namespace ns3 {
+
+NS_LOG_COMPONENT_DEFINE ("TcpReno");
+
+NS_OBJECT_ENSURE_REGISTERED (TcpReno);
+
+TypeId
+TcpReno::GetTypeId (void)
+{
+  static TypeId tid = TypeId ("ns3::TcpReno")
+    .SetParent<TcpCongestionOps> ()
+    .SetGroupName ("Internet")
+    .AddConstructor<TcpReno> ();
+  return tid;
+}
+
+TcpReno::TcpReno (void) : TcpCongestionOps ()
+{
+  NS_LOG_FUNCTION (this);
+}
+
+TcpReno::TcpReno (const TcpReno &sock)
+  : TcpCongestionOps (sock)
+{
+  NS_LOG_FUNCTION (this);
+}
+
+TcpReno::~TcpReno (void)
+{
+}
+
+/**
+* \brief Tcp Reno slow start algorithm
+*
+* Defined in RFC 2581 as
+*
+* > During slow start, a TCP increments cwnd by at most SMSS bytes for
+* > each ACK received that cumulatively acknowledges new data.  Slow
+* > start ends when cwnd exceeds ssthresh (or, optionally, when it
+* > reaches it, as noted above) or when congestion is observed.  While
+* > traditionally TCP implementations have increased cwnd by precisely
+* > SMSS bytes upon receipt of an ACK covering new data, we RECOMMEND
+* > that TCP implementations increase cwnd, per:
+* >
+* >    cwnd += min (N, SMSS)                      (2)
+* >
+* > where N is the number of previously unacknowledged bytes acknowledged
+* > in the incoming ACK.
+*
+* The ns-3 implementation respect the RFC definition. Linux does something
+* different:
+* \verbatim
+u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
+{
+u32 cwnd = tp->snd_cwnd + acked;
+if (cwnd > tp->snd_ssthresh)
+  cwnd = tp->snd_ssthresh + 1;
+acked -= cwnd - tp->snd_cwnd;
+tp->snd_cwnd = min(cwnd, tp->snd_cwnd_clamp);
+return acked;
+}
+\endverbatim
+*
+* As stated, we want to avoid the case when a cumulative ACK increases cwnd more
+* than a segment size, but we keep count of how many segments we have ignored,
+* and return them.
+*
+* \param tcb internal congestion state
+* \param segmentsAcked count of segments acked
+* \return the number of segments not considered for increasing the cwnd
+*/
+
+uint32_t
+TcpReno::SlowStart (Ptr <TcpSocketState> tcb, uint32_t segmentsAcked)
+{
+  NS_LOG_FUNCTION (this << tcb << segmentsAcked);
+
+  if (segmentsAcked >= 1)
+    {
+      tcb->m_cWnd += tcb->m_segmentSize;
+      NS_LOG_INFO ("In SlowStart, updated to cWnd " << tcb->m_cWnd << " ssthresh " << tcb->m_ssThresh);
+      return segmentsAcked - 1;
+    }
+
+  return 0;
+}
+
+/**
+* \brief Reno congestion avoidance
+*
+* During congestion avoidance, cwnd is incremented by roughly 1 full-sized
+* segment per round-trip time (RTT).
+*
+* \param tcb internal congestion state
+* \param segmentsAcked count of segments acked
+*/
+void
+TcpReno::CongestionAvoidance (Ptr <TcpSocketState> tcb, uint32_t segmentsAcked)
+{
+  NS_LOG_FUNCTION (this << tcb << segmentsAcked);
+
+  if (segmentsAcked > 0)
+    {
+      double adder = static_cast<double> (tcb->m_segmentSize * tcb->m_segmentSize) / tcb->m_cWnd.Get ();
+      adder = std::max (1.0, adder);
+      tcb->m_cWnd += static_cast<uint32_t> (adder);
+      NS_LOG_INFO ("In CongAvoid, updated to cWnd " << tcb->m_cWnd <<
+                   " ssthresh " << tcb->m_ssThresh);
+    }
+}
+
+/**
+* \brief Try to increase the cwnd following the Reno specification
+*
+* \see SlowStart
+* \see CongestionAvoidance
+*
+* \param tcb internal congestion state
+* \param segmentsAcked count of segments acked
+*/
+void
+TcpReno::IncreaseWindow (Ptr <TcpSocketState> tcb, uint32_t segmentsAcked)
+{
+  NS_LOG_FUNCTION (this << tcb << segmentsAcked);
+
+  if (tcb->m_cWnd < tcb->m_ssThresh)
+    {
+      segmentsAcked = SlowStart (tcb, segmentsAcked);
+    }
+
+  if (tcb->m_cWnd >= tcb->m_ssThresh)
+    {
+      CongestionAvoidance (tcb, segmentsAcked);
+    }
+
+  /* At this point, we could have segmentsAcked != 0. This because RFC says
+   * that in slow start, we should increase cwnd by min (N, SMSS); if in
+   * slow start we receive a cumulative ACK, it counts only for 1 SMSS of
+   * increase, wasting the others.
+   *
+   * // Incorrect assert, I am sorry
+   * NS_ASSERT (segmentsAcked == 0);
+   */
+}
+
+std::stringDefault
+TcpReno::GetName () const
+{
+  return "TcpReno";
+}
+
+uint32_t
+TcpReno::GetSsThresh (Ptr<const TcpSocketState> state,
+                      uint32_t bytesInFlight)
+{
+  NS_LOG_FUNCTION (this << state << bytesInFlight);
+
+  return std::max (2 * state->m_segmentSize, bytesInFlight / 2);
+}
+
+Ptr <TcpCongestionOps>
+TcpReno::Fork ()
+{
+  return CopyObject<TcpReno> (this);
+}
+}

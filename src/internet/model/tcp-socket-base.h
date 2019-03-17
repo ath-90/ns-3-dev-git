@@ -445,6 +445,8 @@ public:
    *
    * \return TOS with ECT(0)
    */
+  SequenceNumber32 GetRecoveryThreshold(const SequenceNumber32 &oldHeadSequence);
+
   inline uint8_t MarkEcnEct0 (uint8_t tos) const
     {
       return ((tos & 0xfc) | 0x02);
